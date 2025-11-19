@@ -28,30 +28,30 @@ export const showControls = writable<boolean>(false);
 export const showInfo = writable<boolean>(false);
 export const showCircuit = writable<boolean>(false);
 
-async function enableMidi() {
+async function mapToMidi() {
     await WebMidi.enable()
     WebMidi.inputs.forEach(input => {
         // @ts-ignore
         input.addListener('controlchange', 'all', (e) => {
             switch(e.controller.number) {
-                case 1: size.set(Math.floor(e.value * 1300) + 700); break;
-                case 2: elementMaxSize.set(Math.floor(e.value * 499 + 1)); break;
-                case 3: fillOpacity.set(e.value); break;
-                case 4: strokeOpacity.set(e.value); break;
-                case 5: blur.set(e.value); break;
-                case 6: speed.set(e.value * 0.9 + 0.1); break;
-                case 7: midiInput.set(e.value); break;
+                // case 0: size.set(Math.floor(e.value * 1300) + 700); break;
+                case 1: elementMaxSize.set(Math.floor(e.value * 499 + 1)); break;
+                case 2: fillOpacity.set(e.value); break;
+                case 3: strokeOpacity.set(e.value); break;
+                case 4: blur.set(e.value); break;
+                case 5: speed.set(e.value * 0.9 + 0.1); break;
+                case 6: midiInput.set(e.value); break;
             }
         })
     });
 }
-enableMidi();
+mapToMidi();
 
 export const controlsAreActive = derived(
     [showControls, showInfo, showCircuit],
     ([$showControls, $showInfo, $showCircuit]) => $showControls || $showInfo || $showCircuit
 );
-
+// 
 export const closeAllControls = () => {
     showControls.set(false);
     showInfo.set(false);

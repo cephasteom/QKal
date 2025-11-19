@@ -1,9 +1,11 @@
+import { get } from 'svelte/store';
 import { readable, writable, derived } from 'svelte/store';
 import { complex, round, pow, abs } from 'mathjs'
 import { mapToRange, debounce } from '$lib/utils';
 // @ts-ignore
 import QuantumCircuit from 'quantum-circuit/dist/quantum-circuit.min.js';
 import { loadingState } from './presets';
+import { WebMidi } from 'webmidi';
 
 export const circuit = new QuantumCircuit();
 circuit.load(loadingState)
@@ -19,6 +21,29 @@ const debouncedCircuitRun = debounce(() => circuit.run(), 10)
 
 // Re-run the circuit whenever parameters change, debounced to avoid excessive computations
 circuitParams.subscribe(debouncedCircuitRun)
+
+async function mapToMidi() {
+    await WebMidi.enable()
+    WebMidi.inputs.forEach(input => {
+        // @ts-ignore
+        input.addListener('controlchange', 'all', (e) => {
+            const params = get(circuitParams)
+            const index = e.controller.number - 7; // Assuming controllers 7-12 map to params 0-5
+            if (index < 0 || index >= params.length) return; // Out of bounds check
+
+            circuitParams.update(currentParams => currentParams.map((param: any, i: number) => {
+                if (i === index) {
+                    return {
+                        ...param,
+                        value: e.value * Math.PI * (param.param === 'theta' ? 1 : 2) // Update the value of the specific parameter
+                    };
+                }
+                return param; // Return unchanged for other parameters
+            }));
+        })
+    });
+}
+mapToMidi();
 
 export const probabilities = derived(
     [circuitParams],
