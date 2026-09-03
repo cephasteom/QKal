@@ -8,6 +8,7 @@
         blur,
         midiInput,
         size,
+        segments
     } from "$lib/stores/kaleidoscope";
     import { circuitParams } from "$lib/stores/circuit";
     import SidePanel from "$lib/components/SidePanel/SidePanel.svelte";
@@ -17,11 +18,11 @@
     <SidePanel>
         <h2>Parameters</h2>
         
-        <!-- <div class="parameter">
+        <div class="parameter">
             <label for="segments">Segments</label>
             <input class="track" type="range" id="segments" bind:value={$segments} min="4" max="12" step="2" />
             <output for="segments">{$segments}</output>
-        </div> -->
+        </div>
         <div class="parameter">
             <label for="size">Size</label>
             <input class="track" type="range" id="size" bind:value={$size} min="700" max="2000" step="1" />

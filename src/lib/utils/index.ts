@@ -11,7 +11,7 @@ export function noiseWalk(): (speed: number) => number {
     };
 }
 
-export function numberToRGBA(value: number, alpha: number = 1) {
+export function numberToColor(value: number, alpha: number = 1) {
     if (value < 0 || value > 1) {
         throw new Error("Input must be between 0 and 1");
     }
@@ -37,7 +37,7 @@ export function numberToRGBA(value: number, alpha: number = 1) {
     }
 
     const [r, g, b] = hslToRgb(hue, saturation, lightness);
-    return `rgba(${r},${g},${b},${alpha})`;
+    return { r: r / 255, g: g / 255, b: b / 255, a: alpha };
 }
 
 

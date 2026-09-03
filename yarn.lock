@@ -812,6 +812,11 @@ postcss@^8.5.6:
     picocolors "^1.1.1"
     source-map-js "^1.2.1"
 
+q5@^4.8.2:
+  version "4.8.2"
+  resolved "https://registry.yarnpkg.com/q5/-/q5-4.8.2.tgz#c9c00d53e7ad3e747ec3e7cb5b97e1d5e25a417d"
+  integrity sha512-xQCeilznGozLSC7nPfvwOugJHyHhyb81TpVFr0ocCa9DmSzzpLiap3AD7iESWEn7j9MWJ3WRCbyfHFrGuXGdig==
+
 quantum-circuit@^0.9.236:
   version "0.9.242"
   resolved "https://registry.yarnpkg.com/quantum-circuit/-/quantum-circuit-0.9.242.tgz#fe9c726f01112d4474033b05e15cd4d53914ddf6"

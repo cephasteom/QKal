@@ -29,6 +29,7 @@
 		"fontawesome-svelte": "^3.0.0",
 		"mathjs": "^15.1.0",
 		"perlin.js": "^1.0.0",
+		"q5": "^4.8.2",
 		"quantum-circuit": "^0.9.236",
 		"webmidi": "^3.1.14"
 	}

@@ -1,4 +1,4 @@
-import { numberToRGBA, noiseWalk } from '$lib/utils';
+import { numberToColor, noiseWalk } from '$lib/utils';
 import { writable, derived, get } from 'svelte/store';
 import { probabilities, phases } from './circuit';
 import { WebMidi } from 'webmidi';
@@ -88,8 +88,8 @@ export const objects = derived(
             y: ($probabilities[i] 
                 * $size
                 + getWalker((i * 10) + 1)($speed) / 2 + 0.5),
-            fill: numberToRGBA($phases[i], $fillOpacity + (getWalker((i * 10) + 2)($speed) * ($phases[i] * 0.001))),
-            stroke: numberToRGBA($phases[i], ($strokeOpacity + getWalker((i * 10) + 3)($speed) * $probabilities[i])),
+            fill: numberToColor($phases[i], $fillOpacity + (getWalker((i * 10) + 2)($speed) * ($phases[i] * 0.001))),
+            stroke: numberToColor($phases[i], ($strokeOpacity + getWalker((i * 10) + 3)($speed) * $probabilities[i])),
             size: (getWalker((i * 10) + 4)($speed)/2 + .5) * $elementMaxSize * (1 + ($midiInput * get(level) * 2)),
             curve: 1,
             rot: (getWalker((i * 10) + 5)($speed) * Math.PI * 2) * ($probabilities[i] + 0.25),

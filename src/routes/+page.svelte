@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import { closeAllControls, toggleIsPlaying, segments } from "$lib/stores/kaleidoscope";
+    import { closeAllControls, toggleIsPlaying } from "$lib/stores/kaleidoscope";
     import Kaleidoscope from "$lib/components/Kaleidoscope/Kaleidoscope.svelte";
     import Parameters from "$lib/components/Parameters/Parameters.svelte";
     import Sidebar from "$lib/components/Sidebar/Sidebar.svelte";
@@ -29,11 +29,7 @@
     <Info />
     <Circuit />
     
-    {#key $segments}
-        <Kaleidoscope 
-            segments={$segments}
-        />
-    {/key}
+    <Kaleidoscope />
 
     <footer>
         <!-- copyright cephas teom current year -->
