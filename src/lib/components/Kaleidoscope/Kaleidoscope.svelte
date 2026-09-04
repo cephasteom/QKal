@@ -70,6 +70,7 @@
           // q5 auto-appends captured elements as a visible sibling of the
           // canvas (see createElement in q5.js) - it's only used as a texture
           // source here, so pull it out of layout and hide it.
+          // @ts-ignore
           Object.assign(webcamVideo.style, {
             position: 'absolute',
             width: '1px',
@@ -87,6 +88,7 @@
     });
 
     (async () => {
+      // @ts-ignore
       await import('q5');
       const Q5 = (window as any).Q5;
       if (cancelled) return;

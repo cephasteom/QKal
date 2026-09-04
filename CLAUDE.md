@@ -38,16 +38,29 @@ Node version is pinned via `.nvmrc` (v23.6.1); `engine-strict=true` is set in `.
    (position, fill/stroke colour, size, rotation, superformula params). This store recomputes every
    animation frame via the `t` tick store.
 
-3. **`Kaleidoscope.svelte`** owns one `<canvas>` per segment, each with `transferControlToOffscreen()`
-   handed to a single shared Web Worker (`static/offscreen-canvas.js`, loaded as a static asset, not
-   a bundled module). The worker receives the `objects` array on every store update and draws each
-   shape as a superformula-generated polygon, with a translucent fill-rect trail effect for motion
-   blur. The main thread only drives the render loop (`requestAnimationFrame` bumping `t`) and posts
-   data to the worker — no drawing happens on the main thread.
+3. **`Kaleidoscope.svelte`** owns a single [q5](https://q5js.org/) `Q5.WebGPU` canvas (dynamically
+   `import('q5')`'d on mount) and drives its own `q.draw()` loop — there is no Web Worker or
+   OffscreenCanvas; all drawing happens on the main thread. Each frame it snapshots the latest
+   `objects`/`blur`/`size`/`segments` store values (kept current via manual `.subscribe()` calls,
+   not Svelte's `$` syntax, since `q.draw` is a plain callback) and loops over every segment ×
+   object, turning each superformula shape into a polygon via `superformulaPoints` (`src/lib/utils/draw.ts`).
+   A translucent `q.background()` fill each frame (scaled by `blur`) produces the motion-trail effect.
 
-4. Visual mirroring/kaleidoscope symmetry is achieved with pure CSS: each segment canvas is a
-   `clip-path` triangle wedge, rotated and alternately `scaleX`-flipped (see `segmentDimensions` in
-   `src/lib/utils/index.ts` for the wedge geometry math).
+4. Kaleidoscope mirroring/wedge placement is **not** done via canvas transforms or CSS — q5's
+   `rotate()`/`scale()` compose unpredictably when nested, so `draw.ts` does it as plain point math
+   instead: `rotatePoints`/`translatePoints` position each shape in wedge-local space, `mirrorPointsX`
+   flips odd-indexed wedges, `clipPolygonToWedge` clips to the wedge cone (q5 has no scissor/clip
+   primitive), and a final `rotatePoints` places the wedge on the circle (see `segmentDimensions` in
+   `src/lib/utils/index.ts` for the wedge angle/width geometry). `drawPolygon` then emits the final
+   absolute-coordinate polygon via `q.beginShape()`/`q.vertex()`, passing colours as numeric r/g/b/a
+   components since q5's WebGPU renderer doesn't parse CSS colour strings.
+
+5. Optional webcam input (`webcamOpacity` store, slider in `Parameters.svelte`) is captured via
+   `q.createCapture('video')` and composited *underneath* the shapes each frame. Because q5's WebGPU
+   canvas has no clip primitive, the mirrored wedge crop is instead drawn on a real 2D
+   `q.createGraphics(..., 'c2d')` buffer using `ctx.clip()` (`compositeWebcamWedges` in `draw.ts`,
+   using the same per-wedge rotate/mirror convention as the shape math above), then that buffer is
+   uploaded as a single q5 texture via `q.image()`.
 
 ### MIDI
 
