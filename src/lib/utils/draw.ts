@@ -116,6 +116,57 @@ export function clipPolygonToWedge(points: Point[], halfAngle: number): Point[] 
 }
 
 // -------------------------------
+// COMPOSITE WEBCAM VIDEO INTO MIRRORED WEDGES
+// -------------------------------
+// q5's WebGPU renderer has no clip/scissor primitive (see clipPolygonToWedge
+// above), so image() can't be wedge-clipped directly. This draws the wedge
+// composite on a real 2D context instead - ctx.clip() is a plain browser
+// primitive - and the caller uploads the result as a single q5 texture.
+export function compositeWebcamWedges(
+    ctx: CanvasRenderingContext2D,
+    video: CanvasImageSource,
+    segments: number,
+    size: number,
+    wedgeWidth: number,
+    opacity: number = 1
+) {
+    const halfWedgeAngle = Math.PI / segments;
+    ctx.clearRect(0, 0, size, size);
+    ctx.globalAlpha = opacity;
+
+    for (let i = 0; i < segments; i++) {
+        const mirrored = i % 2 !== 0;
+        const wedgeAngle = halfWedgeAngle + i * ((Math.PI * 2) / segments);
+
+        // save/restore is wrapped in try/finally so a mid-wedge failure (e.g.
+        // drawImage on a not-yet-ready video frame) can never leave the clip
+        // and transform applied to every wedge drawn after it, this frame or
+        // the next - without it a single bad frame corrupts the whole buffer.
+        ctx.save();
+        try {
+            ctx.translate(size / 2, size / 2);
+            ctx.rotate(wedgeAngle);
+            if (mirrored) ctx.scale(-1, 1);
+
+            // same wedge cone as clipPolygonToWedge: apex at origin, ±halfWedgeAngle
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(-wedgeWidth / 2, size / 2);
+            ctx.lineTo(wedgeWidth / 2, size / 2);
+            ctx.closePath();
+            ctx.clip();
+
+            // drawing the same source crop into every wedge's rotated/mirrored
+            // local frame is what produces the mirrored kaleidoscope symmetry -
+            // the same trick rotatePoints/mirrorPointsX apply to shape points.
+            ctx.drawImage(video, -size / 2, -size / 2, size, size);
+        } finally {
+            ctx.restore();
+        }
+    }
+}
+
+// -------------------------------
 // EMIT A (POSSIBLY CLIPPED) POLYGON
 // -------------------------------
 export function drawPolygon(q: any, points: Point[], fillColor: Color, strokeColor: Color) {

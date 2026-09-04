@@ -24,6 +24,7 @@ export const size = writable<number>(2000);
 export const blur = writable<number>(0);
 export const midiInput = writable<number>(0);
 export const isPlaying = writable<boolean>(true);
+export const webcamOpacity = writable<number>(0);
 export const showControls = writable<boolean>(false);
 export const showInfo = writable<boolean>(false);
 export const showCircuit = writable<boolean>(false);

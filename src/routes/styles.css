@@ -22,3 +22,7 @@ body {
 .svg-inline--fa {
     height: 1rem!important;
 }
+
+.kaleidoscope > video {
+    position: absolute;
+}

@@ -8,7 +8,8 @@
         blur,
         midiInput,
         size,
-        segments
+        segments,
+        webcamOpacity
     } from "$lib/stores/kaleidoscope";
     import { circuitParams } from "$lib/stores/circuit";
     import SidePanel from "$lib/components/SidePanel/SidePanel.svelte";
@@ -57,6 +58,11 @@
             <label for="midiInput">Midi Input</label>
             <input class="track" type="range" id="midiInput" bind:value={$midiInput} min="0" max="1" step="0.01"/>
             <output for="midiInput">{$midiInput.toFixed(2)}</output>
+        </div>
+        <div class="parameter">
+            <label for="webcamOpacity">Webcam</label>
+            <input class="track" type="range" id="webcamOpacity" bind:value={$webcamOpacity} min="0" max="1" step="0.01" />
+            <output for="webcamOpacity">{$webcamOpacity.toFixed(2)}</output>
         </div>
 
         <hr />

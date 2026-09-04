@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { t, objects, isPlaying, size, blur, segments } from '$lib/stores/kaleidoscope';
+  import { t, objects, isPlaying, size, blur, segments, webcamOpacity } from '$lib/stores/kaleidoscope';
   import { segmentDimensions } from '$lib/utils';
   import {
     superformulaPoints,
@@ -8,7 +8,8 @@
     drawPolygon,
     rotatePoints,
     translatePoints,
-    mirrorPointsX
+    mirrorPointsX,
+    compositeWebcamWedges
   } from '$lib/utils/draw';
 
   let containerEl: HTMLDivElement;
@@ -23,16 +24,66 @@
     let currentSegments = 0;
     let playing = true;
 
+    let webcamVideo: (HTMLVideoElement & { ready?: boolean }) | null = null;
+    let webcamBuffer: any = null;
+    let currentWebcamOpacity = 0;
+
+    function stopWebcam() {
+      const stream = webcamVideo?.srcObject as MediaStream | null;
+      stream?.getTracks().forEach((track) => track.stop());
+      webcamVideo?.remove();
+      webcamVideo = null;
+      webcamBuffer?.remove();
+      webcamBuffer = null;
+    }
+
     const unsubObjects = objects.subscribe((v) => (currentObjects = v));
     const unsubBlur = blur.subscribe((v) => (currentBlur = v));
     const unsubSize = size.subscribe((v) => {
       currentSize = v;
       q?.resizeCanvas(v, v);
+      // recreated rather than resized - the buffer stayed stuck at its
+      // creation-time dimensions when using q5's own resizeCanvas() here,
+      // so this sidesteps whatever that mismatch was.
+      if (webcamBuffer && q) {
+        webcamBuffer.remove();
+        webcamBuffer = q.createGraphics(v, v, 'c2d');
+      }
     });
     const unsubSegments = segments.subscribe((v) => (currentSegments = v));
     const unsubPlaying = isPlaying.subscribe((v) => {
       playing = v;
       v ? q?.loop() : q?.noLoop();
+    });
+    const unsubWebcamOpacity = webcamOpacity.subscribe((opacity) => {
+      currentWebcamOpacity = opacity;
+      if (!q) return;
+      if (opacity <= 0) {
+        stopWebcam();
+        return;
+      }
+      if (webcamVideo) return;
+
+      (async () => {
+        try {
+          webcamVideo = await q.createCapture('video');
+          // q5 auto-appends captured elements as a visible sibling of the
+          // canvas (see createElement in q5.js) - it's only used as a texture
+          // source here, so pull it out of layout and hide it.
+          Object.assign(webcamVideo.style, {
+            position: 'absolute',
+            width: '1px',
+            height: '1px',
+            opacity: '0',
+            pointerEvents: 'none'
+          });
+          webcamBuffer = q.createGraphics(currentSize, currentSize, 'c2d');
+        } catch (err) {
+          console.error('Webcam capture failed', err);
+          stopWebcam();
+          webcamOpacity.set(0);
+        }
+      })();
     });
 
     (async () => {
@@ -51,6 +102,25 @@
 
         const { width: wedgeWidth } = segmentDimensions(currentSegments, currentSize);
         const halfWedgeAngle = Math.PI / currentSegments;
+
+        // drawn before the shapes below so it sits behind them, and after
+        // q.background() so it inherits the same translucent-clear trailing.
+        if (webcamVideo && webcamBuffer) {
+          compositeWebcamWedges(
+            webcamBuffer.drawingContext,
+            webcamVideo,
+            currentSegments,
+            currentSize,
+            wedgeWidth,
+            currentWebcamOpacity
+          );
+          webcamBuffer.modified = true;
+          // q5's WebGPU renderer has (0,0) at the canvas centre (see
+          // resetMatrix() -> translate(halfWidth, halfHeight) in q5.js),
+          // unlike the offscreen 2D buffer's top-left origin, so the corner
+          // must be offset by half the size to keep the two centred together.
+          q.image(webcamBuffer, -currentSize / 2, -currentSize / 2, currentSize, currentSize);
+        }
 
         // All wedge placement, mirroring and per-object spin is computed as
         // plain point math (not via q.rotate/q.scale) - see draw.ts for why.
@@ -92,6 +162,8 @@
       unsubSize();
       unsubSegments();
       unsubPlaying();
+      unsubWebcamOpacity();
+      stopWebcam();
       q?.remove();
     };
   });
