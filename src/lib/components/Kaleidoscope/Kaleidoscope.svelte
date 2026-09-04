@@ -9,7 +9,11 @@
     rotatePoints,
     translatePoints,
     mirrorPointsX,
-    compositeWebcamWedges
+    compositeWebcamWedges,
+    applyMatrix,
+    segmentMatrix,
+    wedgeStatus,
+    type Matrix2D
   } from '$lib/utils/draw';
 
   let containerEl: HTMLDivElement;
@@ -126,32 +130,58 @@
 
         // All wedge placement, mirroring and per-object spin is computed as
         // plain point math (not via q.rotate/q.scale) - see draw.ts for why.
+
+        // A shape's own spin + position is identical in every wedge - only
+        // the per-segment mirror/placement differs - so it's generated once
+        // per object per frame here and reused across all N segments below,
+        // instead of once per segment x object pair.
+        const prepared = currentObjects.map((obj: any) => {
+          const offsetX = obj.x - wedgeWidth / 2;
+          const offsetY = obj.y;
+          const basePoints = translatePoints(
+            rotatePoints(superformulaPoints(obj.size, obj.sf), obj.rot),
+            offsetX,
+            offsetY
+          );
+          return { obj, basePoints, status: wedgeStatus(basePoints, halfWedgeAngle) };
+        });
+
+        // Per-segment mirror + final rotate is a linear map that depends only
+        // on the segment's index/count, not on any object - precomputed once
+        // per frame as a single matrix instead of two ops rebuilt per object.
+        const placementMatrices: Matrix2D[] = [];
+        const rotationMatrices: Matrix2D[] = [];
         for (let i = 0; i < currentSegments; i++) {
           const mirrored = i % 2 !== 0;
           const wedgeAngle = halfWedgeAngle + i * ((Math.PI * 2) / currentSegments);
+          placementMatrices.push(segmentMatrix(wedgeAngle, mirrored));
+          rotationMatrices.push(segmentMatrix(wedgeAngle, false));
+        }
 
-          for (const obj of currentObjects) {
-            const offsetX = obj.x - wedgeWidth / 2;
-            const offsetY = obj.y;
+        for (let i = 0; i < currentSegments; i++) {
+          const mirrored = i % 2 !== 0;
+          const placementMatrix = placementMatrices[i];
+          const rotationMatrix = rotationMatrices[i];
 
-            // 1. the shape's own spin + position, in canonical wedge-local space
-            let points = translatePoints(
-              rotatePoints(superformulaPoints(obj.size, obj.sf), obj.rot),
-              offsetX,
-              offsetY
-            );
+          for (const { obj, basePoints, status } of prepared) {
+            if (status === 'out') continue;
 
-            // 2. alternate wedges are true mirror reflections - reflecting the
-            // already-spun shape naturally reverses its apparent spin too.
-            if (mirrored) points = mirrorPointsX(points);
+            let points;
+            if (status === 'in') {
+              // entirely inside the wedge cone - no clip needed, mirror +
+              // rotate collapse into a single matrix pass
+              points = applyMatrix(basePoints, placementMatrix);
+            } else {
+              // boundary-crossing shape - still needs the real clip, done in
+              // the same mirror-then-clip-then-rotate order as before; q5 has
+              // no scissor/clip primitive of its own.
+              let clipped = mirrored ? mirrorPointsX(basePoints) : basePoints;
+              clipped = clipPolygonToWedge(clipped, halfWedgeAngle);
+              if (clipped.length < 3) continue;
+              points = applyMatrix(clipped, rotationMatrix);
+            }
 
-            // 3. clip to the wedge boundary before placing it on the circle -
-            // q5 has no scissor/clip primitive of its own.
-            points = clipPolygonToWedge(points, halfWedgeAngle);
-            if (points.length < 3) continue;
-
-            // 4. rotate the (already mirrored + clipped) content into place
-            drawPolygon(q, rotatePoints(points, wedgeAngle), obj.fill, obj.stroke);
+            drawPolygon(q, points, obj.fill, obj.stroke);
           }
         }
       };

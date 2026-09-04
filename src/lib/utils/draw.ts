@@ -17,6 +17,13 @@ interface Point {
     y: number;
 }
 
+export interface Matrix2D {
+    a: number;
+    b: number;
+    c: number;
+    d: number;
+}
+
 // -------------------------------
 // SUPERFORMULA EQUATION
 // -------------------------------
@@ -68,6 +75,47 @@ export function translatePoints(points: Point[], dx: number, dy: number): Point[
 
 export function mirrorPointsX(points: Point[]): Point[] {
     return points.map(({ x, y }) => ({ x: -x, y }));
+}
+
+// Applies a 2x2 matrix to every point in one pass, for when several of the
+// transforms above have been pre-composed (see segmentMatrix below).
+export function applyMatrix(points: Point[], m: Matrix2D): Point[] {
+    return points.map(({ x, y }) => ({ x: m.a * x + m.c * y, y: m.b * x + m.d * y }));
+}
+
+// The per-segment placement is just rotatePoints(angle), optionally preceded
+// by mirrorPointsX - both linear maps, so they compose into a single matrix
+// that depends only on the segment's angle/parity, not on any object. Reused
+// across every object in that segment instead of being rebuilt per object.
+export function segmentMatrix(angle: number, mirrored: boolean): Matrix2D {
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    return mirrored
+        ? { a: -cos, b: -sin, c: -sin, d: cos }
+        : { a: cos, b: sin, c: -sin, d: cos };
+}
+
+export type WedgeStatus = 'in' | 'out' | 'boundary';
+
+// Cheap classification against the wedge cone, reusing the same half-plane
+// tests as clipToHalfPlane but without building any new point arrays. Most
+// shapes are either entirely inside or entirely outside the wedge, so this
+// lets callers skip the real (allocating) clip below for both of those cases
+// and only pay for it on genuine boundary-crossers. The cone is symmetric
+// about the wedge's centre axis, so this test is valid for both mirrored and
+// unmirrored points - the same classification applies either way.
+export function wedgeStatus(points: Point[], halfAngle: number): WedgeStatus {
+    const sin = Math.sin(halfAngle);
+    const cos = Math.cos(halfAngle);
+    let insideCount = 0;
+    for (const p of points) {
+        const rightOk = sin * p.y - cos * p.x >= 0;
+        const leftOk = sin * p.y + cos * p.x >= 0;
+        if (rightOk && leftOk) insideCount++;
+    }
+    if (insideCount === points.length) return 'in';
+    if (insideCount === 0) return 'out';
+    return 'boundary';
 }
 
 // -------------------------------
