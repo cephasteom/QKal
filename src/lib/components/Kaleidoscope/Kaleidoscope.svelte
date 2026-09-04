@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { t, objects, isPlaying, size, blur, segments, webcamOpacity } from '$lib/stores/kaleidoscope';
+  import { t, objects, qubitObjects, isPlaying, size, blurAmount, segments, webcamOpacity } from '$lib/stores/kaleidoscope';
   import { segmentDimensions } from '$lib/utils';
   import {
     SUPERFORMULA_POINT_COUNT,
@@ -25,6 +25,7 @@
     let cancelled = false;
 
     let currentObjects: any[] = [];
+    let currentQubitObjects: any[] = [];
     let currentBlur = 0;
     let currentSize = 0;
     let currentSegments = 0;
@@ -53,7 +54,8 @@
     }
 
     const unsubObjects = objects.subscribe((v) => (currentObjects = v));
-    const unsubBlur = blur.subscribe((v) => (currentBlur = v));
+    const unsubQubitObjects = qubitObjects.subscribe((v) => (currentQubitObjects = v));
+    const unsubBlur = blurAmount.subscribe((v) => (currentBlur = v));
     const unsubSize = size.subscribe((v) => {
       currentSize = v;
       q?.resizeCanvas(v, v);
@@ -145,11 +147,16 @@
         // A shape's own spin + position is identical in every wedge - only
         // the per-segment mirror/placement differs - so it's generated once
         // per object per frame here and reused across all N segments below,
-        // instead of once per segment x object pair.
-        if (baseBuffers.length !== currentObjects.length) {
-          baseBuffers = currentObjects.map(() => new Float32Array(SUPERFORMULA_POINT_COUNT * 2));
+        // instead of once per segment x object pair. The per-qubit ring
+        // (currentQubitObjects) is drawn through the same pipeline, just
+        // concatenated onto the basis-state shapes.
+        const renderObjects = currentQubitObjects.length
+          ? currentObjects.concat(currentQubitObjects)
+          : currentObjects;
+        if (baseBuffers.length !== renderObjects.length) {
+          baseBuffers = renderObjects.map(() => new Float32Array(SUPERFORMULA_POINT_COUNT * 2));
         }
-        const prepared = currentObjects.map((obj: any, i: number) => {
+        const prepared = renderObjects.map((obj: any, i: number) => {
           const offsetX = obj.x - wedgeWidth / 2;
           const offsetY = obj.y;
           const basePoints = baseBuffers[i];
@@ -202,6 +209,7 @@
     return () => {
       cancelled = true;
       unsubObjects();
+      unsubQubitObjects();
       unsubBlur();
       unsubSize();
       unsubSegments();

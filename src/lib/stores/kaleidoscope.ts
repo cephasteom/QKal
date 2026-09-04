@@ -1,6 +1,6 @@
-import { numberToColor, noiseWalk } from '$lib/utils';
+import { numberToColor, noiseWalk, clamp } from '$lib/utils';
 import { writable, derived, get } from 'svelte/store';
-import { probabilities, phases } from './circuit';
+import { probabilities, phases, features } from './circuit';
 import { WebMidi } from 'webmidi';
 import { level } from './midi';
 
@@ -14,13 +14,19 @@ function getWalker(i: number) {
 }
 
 export const t = writable<number>(0);
+// Manual/MIDI-set baseline; synced to the circuit's qubit count below
+// whenever it changes (QKAL_PLAN.md step 3), then left alone in between.
 export const segments = writable<number>(6);
+// Manual/MIDI offset added on top of the participation-ratio-driven base -
+// see elementSizeAmount below.
 export const elementMaxSize = writable<number>(300);
 export const elementShapes = writable<string[]>(['arc', 'poly', 'bezier']);
 export const strokeOpacity = writable<number>(0.01);
 export const fillOpacity = writable<number>(0.01);
 export const speed = writable<number>(0.1);
 export const size = writable<number>(2000);
+// Manual/MIDI offset added on top of the entanglement-driven base - see
+// blurAmount below.
 export const blur = writable<number>(0);
 export const midiInput = writable<number>(0);
 export const isPlaying = writable<boolean>(true);
@@ -47,6 +53,18 @@ async function mapToMidi() {
     });
 }
 mapToMidi();
+
+// Segments track the qubit count directly - it's rare enough to change
+// (only when a gate is added/removed on a new wire) that snapping it
+// outright doesn't jar, unlike the continuous blur/size below. Only acts on
+// an actual qubit-count change so it doesn't fight manual/MIDI adjustments
+// made in between.
+let lastQubitCount: number | null = null;
+features.subscribe(($features) => {
+    if ($features.qubitCount === lastQubitCount) return;
+    lastQubitCount = $features.qubitCount;
+    segments.set(Math.max(4, $features.qubitCount * 2));
+});
 
 export const controlsAreActive = derived(
     [showControls, showInfo, showCircuit],
@@ -112,9 +130,24 @@ export const quantumTraits = derived(
     }
 );
 
+// Entangled qubits (mean Bloch length -> 0) smear via background-alpha blur;
+// product states (-> 1) stay crisp, so blur tracks 1 - meanBlochLength.
+// `blur` is a manual/MIDI offset on top.
+export const blurAmount = derived(
+    [features, blur],
+    ([$features, $blur]) => clamp((1 - $features.meanBlochLength) + $blur)
+);
+
+// Spread-out superpositions (participation ratio -> 1) grow; collapsed
+// states (-> 0) shrink. `elementMaxSize` is a manual/MIDI offset on top.
+export const elementSizeAmount = derived(
+    [features, elementMaxSize],
+    ([$features, $elementMaxSize]) => clamp($elementMaxSize + $features.participationRatio * 400, 1, 900)
+);
+
 export const objects = derived(
-    [quantumTraits, elementMaxSize, size, speed, strokeOpacity, fillOpacity, midiInput, t],
-    ([$quantumTraits, $elementMaxSize, $size, $speed, $strokeOpacity, $fillOpacity, $midiInput]) => {
+    [quantumTraits, elementSizeAmount, size, speed, strokeOpacity, fillOpacity, midiInput, t],
+    ([$quantumTraits, $elementSizeAmount, $size, $speed, $strokeOpacity, $fillOpacity, $midiInput]) => {
         return $quantumTraits.map(({ probability, phase, r, g, b, sfM, shape }: QuantumTrait, i) => ({
             x: 0.25
                 * $size
@@ -124,7 +157,7 @@ export const objects = derived(
                 + getWalker((i * 10) + 1)($speed) / 2 + 0.5),
             fill: { r, g, b, a: $fillOpacity + (getWalker((i * 10) + 2)($speed) * (phase * 0.001)) },
             stroke: { r, g, b, a: ($strokeOpacity + getWalker((i * 10) + 3)($speed) * probability) },
-            size: (getWalker((i * 10) + 4)($speed)/2 + .5) * $elementMaxSize * (1 + ($midiInput * get(level) * 2)),
+            size: (getWalker((i * 10) + 4)($speed)/2 + .5) * $elementSizeAmount * (1 + ($midiInput * get(level) * 2)),
             curve: 1,
             rot: (getWalker((i * 10) + 5)($speed) * Math.PI * 2) * (probability + 0.25),
             shape,
@@ -136,5 +169,66 @@ export const objects = derived(
                 n3: getWalker((i * 10) + 9)($speed / 2) * 2
             },
         }))
+    }
+);
+
+interface QubitTrait {
+    length: number;
+    r: number;
+    g: number;
+    b: number;
+    sfM: number;
+    shape: string;
+}
+
+// A qubit's Bloch equatorial angle stands in for phase here, so its colour
+// sits in the same hue space as the basis-state shapes above.
+export const qubitTraits = derived(
+    [features, elementShapes],
+    ([$features, $elementShapes]): QubitTrait[] => {
+        return $features.blochVectors.map((vector, i) => {
+            const angle = (Math.atan2(vector.y, vector.x) + Math.PI) / (Math.PI * 2);
+            const { r, g, b } = numberToColor(angle);
+            return {
+                length: vector.length,
+                r, g, b,
+                sfM: Math.floor(angle * 8) + 2,
+                shape: $elementShapes[i % $elementShapes.length]
+            };
+        });
+    }
+);
+
+// Walker indices for the basis-state objects above run up to
+// numAmplitudes * 10, which grows with the qubit count - stay well clear.
+const QUBIT_WALKER_BASE = 1_000_000;
+
+// One shape per qubit, kept close to the wedge apex so the existing
+// per-segment mirroring turns them into a small ring at the kaleidoscope's
+// centre. Opacity tracks Bloch length, so a qubit visibly dissolves into the
+// collective as it entangles rather than keeping a state of its own.
+export const qubitObjects = derived(
+    [qubitTraits, elementSizeAmount, size, speed, strokeOpacity, fillOpacity, t],
+    ([$qubitTraits, $elementSizeAmount, $size, $speed, $strokeOpacity, $fillOpacity]) => {
+        return $qubitTraits.map(({ length, r, g, b, sfM, shape }: QubitTrait, i) => {
+            const w = QUBIT_WALKER_BASE + i * 10;
+            return {
+                x: 0.25 * $size + (getWalker(w + 0)($speed) - 0.5) * $size * 0.08,
+                y: getWalker(w + 1)($speed) * $size * 0.06,
+                fill: { r, g, b, a: $fillOpacity * length },
+                stroke: { r, g, b, a: $strokeOpacity * length },
+                size: (getWalker(w + 2)($speed) / 2 + 0.5) * $elementSizeAmount * 0.5,
+                curve: 1,
+                rot: getWalker(w + 3)($speed) * Math.PI * 2,
+                shape,
+                sides: Math.floor(getWalker(w + 4)($speed) * 4) + 1,
+                sf: {
+                    m: sfM,
+                    n1: getWalker(w + 5)($speed / 2) * 2,
+                    n2: getWalker(w + 6)($speed / 2) * 2,
+                    n3: getWalker(w + 7)($speed / 2) * 2
+                }
+            };
+        });
     }
 );

@@ -2,6 +2,7 @@ import { get } from 'svelte/store';
 import { readable, writable, derived } from 'svelte/store';
 import { complex, round, pow, abs } from 'mathjs'
 import { mapToRange, debounce } from '$lib/utils';
+import { computeQuantumFeatures, type QuantumFeatures } from '$lib/utils/features';
 // @ts-ignore
 import QuantumCircuit from 'quantum-circuit/dist/quantum-circuit.min.js';
 import { loadingState } from './presets';
@@ -63,6 +64,21 @@ export const phases = derived(
     () => {
         const states = circuit.stateAsArray()
         return states.map((state: any) => Math.abs(mapToRange(state.phase, -Math.PI, Math.PI, 0, 1)))
+    }
+)
+
+// Bloch vectors, mean Bloch length, and participation ratio - see
+// src/lib/utils/features.ts and QKAL_PLAN.md step 3. Unlike probabilities/
+// phases these need the raw complex amplitudes, not just magnitude/angle.
+export const features = derived(
+    [circuitParams],
+    (): QuantumFeatures => {
+        const length = circuit.numAmplitudes()
+        const amplitudes = Array.from({ length }, (_, i) => {
+            const state = round(circuit.state[i] || complex(0, 0), 14) as any
+            return { re: state.re as number, im: state.im as number }
+        })
+        return computeQuantumFeatures(amplitudes, circuit.numQubits)
     }
 )
 
