@@ -79,25 +79,58 @@ export const toggleCircuit = () => {
     showCircuit.update(v => !v)
 };
 
+interface QuantumTrait {
+    probability: number;
+    phase: number;
+    r: number;
+    g: number;
+    b: number;
+    sfM: number;
+    shape: string;
+}
+
+// Colour, the superformula's `m` parameter, and shape id are pure functions
+// of a basis state's probability/phase, so they only need to recompute when
+// the circuit re-runs, not on every animation tick like `objects` below.
+// This also converts phase -> RGB once per circuit run instead of twice per
+// object (fill + stroke) on every frame, since numberToColor's r/g/b only
+// depend on phase - the two calls only ever differed in alpha.
+export const quantumTraits = derived(
+    [probabilities, phases, elementShapes],
+    ([$probabilities, $phases, $elementShapes]): QuantumTrait[] => {
+        return $probabilities.map((probability, i) => {
+            const phase = $phases[i];
+            const { r, g, b } = numberToColor(phase);
+            return {
+                probability,
+                phase,
+                r, g, b,
+                sfM: Math.floor(phase * 8) + 2,
+                shape: $elementShapes[i % $elementShapes.length]
+            };
+        });
+    }
+);
+
 export const objects = derived(
-    [elementMaxSize, elementShapes, size, speed, strokeOpacity, fillOpacity, probabilities, phases, midiInput, t], 
-    ([$elementMaxSize, $elementShapes, $size, $speed, $strokeOpacity, $fillOpacity, $probabilities, $phases, $midiInput]) => {
-        return Array.from({ length: $probabilities.length }, (_, i) => ({
-            x: 0.25 
+    [quantumTraits, elementMaxSize, size, speed, strokeOpacity, fillOpacity, midiInput, t],
+    ([$quantumTraits, $elementMaxSize, $size, $speed, $strokeOpacity, $fillOpacity, $midiInput]) => {
+        return $quantumTraits.map(({ probability, phase, r, g, b, sfM, shape }: QuantumTrait, i) => ({
+            x: 0.25
                 * $size
                 + getWalker((i * 10) + 0)($speed),
-            y: ($probabilities[i] 
+            y: (probability
                 * $size
                 + getWalker((i * 10) + 1)($speed) / 2 + 0.5),
-            fill: numberToColor($phases[i], $fillOpacity + (getWalker((i * 10) + 2)($speed) * ($phases[i] * 0.001))),
-            stroke: numberToColor($phases[i], ($strokeOpacity + getWalker((i * 10) + 3)($speed) * $probabilities[i])),
+            fill: { r, g, b, a: $fillOpacity + (getWalker((i * 10) + 2)($speed) * (phase * 0.001)) },
+            stroke: { r, g, b, a: ($strokeOpacity + getWalker((i * 10) + 3)($speed) * probability) },
             size: (getWalker((i * 10) + 4)($speed)/2 + .5) * $elementMaxSize * (1 + ($midiInput * get(level) * 2)),
             curve: 1,
-            rot: (getWalker((i * 10) + 5)($speed) * Math.PI * 2) * ($probabilities[i] + 0.25),
-            shape: $elementShapes[i % $elementShapes.length],
-            sides: Math.floor((getWalker((i * 10) + 6)($speed) * 4) * $probabilities[i]) + 1,
+            rot: (getWalker((i * 10) + 5)($speed) * Math.PI * 2) * (probability + 0.25),
+            shape,
+            sides: Math.floor((getWalker((i * 10) + 6)($speed) * 4) * probability) + 1,
             sf: {
-                m: Math.floor($phases[i] * 8) + 2,
+                m: sfM,
                 n1: getWalker((i * 10) + 7)($speed / 2) * 2,
                 n2: getWalker((i * 10) + 8)($speed / 2) * 2,
                 n3: getWalker((i * 10) + 9)($speed / 2) * 2

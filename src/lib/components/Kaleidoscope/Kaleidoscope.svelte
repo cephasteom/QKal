@@ -3,16 +3,18 @@
   import { t, objects, isPlaying, size, blur, segments, webcamOpacity } from '$lib/stores/kaleidoscope';
   import { segmentDimensions } from '$lib/utils';
   import {
-    superformulaPoints,
+    SUPERFORMULA_POINT_COUNT,
+    writeBasePoints,
+    flatToPoints,
     clipPolygonToWedge,
     drawPolygon,
-    rotatePoints,
-    translatePoints,
+    drawPolygonFlat,
     mirrorPointsX,
     compositeWebcamWedges,
     applyMatrix,
+    applyMatrixInto,
     segmentMatrix,
-    wedgeStatus,
+    wedgeStatusFlat,
     type Matrix2D
   } from '$lib/utils/draw';
 
@@ -31,6 +33,15 @@
     let webcamVideo: (HTMLVideoElement & { ready?: boolean }) | null = null;
     let webcamBuffer: any = null;
     let currentWebcamOpacity = 0;
+
+    // Pooled per-object point buffers, reused frame over frame instead of
+    // allocating a fresh Point[] per object per frame - see QKAL_PLAN.md
+    // step 2. Rebuilt only when the object count changes (i.e. the circuit's
+    // qubit count changes), which is rare. scratchBuffer holds the one
+    // in-flight transformed shape passed to drawPolygonFlat on the hot
+    // "entirely inside the wedge" path.
+    let baseBuffers: Float32Array[] = [];
+    const scratchBuffer = new Float32Array(SUPERFORMULA_POINT_COUNT * 2);
 
     function stopWebcam() {
       const stream = webcamVideo?.srcObject as MediaStream | null;
@@ -135,15 +146,15 @@
         // the per-segment mirror/placement differs - so it's generated once
         // per object per frame here and reused across all N segments below,
         // instead of once per segment x object pair.
-        const prepared = currentObjects.map((obj: any) => {
+        if (baseBuffers.length !== currentObjects.length) {
+          baseBuffers = currentObjects.map(() => new Float32Array(SUPERFORMULA_POINT_COUNT * 2));
+        }
+        const prepared = currentObjects.map((obj: any, i: number) => {
           const offsetX = obj.x - wedgeWidth / 2;
           const offsetY = obj.y;
-          const basePoints = translatePoints(
-            rotatePoints(superformulaPoints(obj.size, obj.sf), obj.rot),
-            offsetX,
-            offsetY
-          );
-          return { obj, basePoints, status: wedgeStatus(basePoints, halfWedgeAngle) };
+          const basePoints = baseBuffers[i];
+          writeBasePoints(basePoints, obj.size, obj.sf, obj.rot, offsetX, offsetY);
+          return { obj, basePoints, status: wedgeStatusFlat(basePoints, halfWedgeAngle) };
         });
 
         // Per-segment mirror + final rotate is a linear map that depends only
@@ -166,22 +177,23 @@
           for (const { obj, basePoints, status } of prepared) {
             if (status === 'out') continue;
 
-            let points;
             if (status === 'in') {
               // entirely inside the wedge cone - no clip needed, mirror +
-              // rotate collapse into a single matrix pass
-              points = applyMatrix(basePoints, placementMatrix);
+              // rotate collapse into a single matrix pass, written into the
+              // shared scratch buffer rather than allocating a new one.
+              applyMatrixInto(scratchBuffer, basePoints, placementMatrix);
+              drawPolygonFlat(q, scratchBuffer, obj.fill, obj.stroke);
             } else {
               // boundary-crossing shape - still needs the real clip, done in
               // the same mirror-then-clip-then-rotate order as before; q5 has
-              // no scissor/clip primitive of its own.
-              let clipped = mirrored ? mirrorPointsX(basePoints) : basePoints;
+              // no scissor/clip primitive of its own. Rare enough that
+              // falling back to the allocating Point[] pipeline is fine.
+              let clipped = mirrored ? mirrorPointsX(flatToPoints(basePoints)) : flatToPoints(basePoints);
               clipped = clipPolygonToWedge(clipped, halfWedgeAngle);
               if (clipped.length < 3) continue;
-              points = applyMatrix(clipped, rotationMatrix);
+              const points = applyMatrix(clipped, rotationMatrix);
+              drawPolygon(q, points, obj.fill, obj.stroke);
             }
-
-            drawPolygon(q, points, obj.fill, obj.stroke);
           }
         }
       };

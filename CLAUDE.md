@@ -31,29 +31,38 @@ Node version is pinned via `.nvmrc` (v23.6.1); `engine-strict=true` is set in `.
    angle per basis state). The `Circuit.svelte` component is a drag-and-drop gate editor that renders
    `circuit.exportSVG()` and mutates the circuit directly (`addGate`/`insertGate`/`removeGate`).
 
-2. **`src/lib/stores/kaleidoscope.ts`** consumes `probabilities`/`phases` and combines them with
-   user/MIDI-controlled parameters (`elementMaxSize`, `speed`, `strokeOpacity`, `fillOpacity`, etc.)
-   plus Perlin noise walkers (one persistent walker per array slot, see `getWalker`/`noiseWalk` in
-   `src/lib/utils/index.ts`) into the derived `objects` store — an array of drawable shape descriptors
-   (position, fill/stroke colour, size, rotation, superformula params). This store recomputes every
-   animation frame via the `t` tick store.
+2. **`src/lib/stores/kaleidoscope.ts`** consumes `probabilities`/`phases` and splits the work by how
+   often it changes. `quantumTraits` derives colour (phase → RGB, computed once here rather than per
+   object per frame), the superformula's `m` parameter, and shape id purely from `probabilities`/
+   `phases`/`elementShapes`, so it only recomputes when the circuit re-runs. `objects` derives from
+   `quantumTraits` plus user/MIDI-controlled parameters (`elementMaxSize`, `speed`, `strokeOpacity`,
+   `fillOpacity`, etc.) and Perlin noise walkers (one persistent walker per array slot, see
+   `getWalker`/`noiseWalk` in `src/lib/utils/index.ts`) into the final array of drawable shape
+   descriptors (position, fill/stroke colour, size, rotation, superformula params) — this store
+   recomputes every animation frame via the `t` tick store, but no longer redoes the colour/shape work
+   `quantumTraits` already cached.
 
 3. **`Kaleidoscope.svelte`** owns a single [q5](https://q5js.org/) `Q5.WebGPU` canvas (dynamically
    `import('q5')`'d on mount) and drives its own `q.draw()` loop — there is no Web Worker or
    OffscreenCanvas; all drawing happens on the main thread. Each frame it snapshots the latest
    `objects`/`blur`/`size`/`segments` store values (kept current via manual `.subscribe()` calls,
-   not Svelte's `$` syntax, since `q.draw` is a plain callback) and loops over every segment ×
-   object, turning each superformula shape into a polygon via `superformulaPoints` (`src/lib/utils/draw.ts`).
-   A translucent `q.background()` fill each frame (scaled by `blur`) produces the motion-trail effect.
+   not Svelte's `$` syntax, since `q.draw` is a plain callback), builds each object's superformula
+   shape once via `writeBasePoints` (`src/lib/utils/draw.ts`) — not once per segment × object pair —
+   into a pooled `Float32Array` reused frame over frame, then loops over every segment × object
+   applying just that segment's placement. A translucent `q.background()` fill each frame (scaled by
+   `blur`) produces the motion-trail effect.
 
 4. Kaleidoscope mirroring/wedge placement is **not** done via canvas transforms or CSS — q5's
    `rotate()`/`scale()` compose unpredictably when nested, so `draw.ts` does it as plain point math
-   instead: `rotatePoints`/`translatePoints` position each shape in wedge-local space, `mirrorPointsX`
-   flips odd-indexed wedges, `clipPolygonToWedge` clips to the wedge cone (q5 has no scissor/clip
-   primitive), and a final `rotatePoints` places the wedge on the circle (see `segmentDimensions` in
-   `src/lib/utils/index.ts` for the wedge angle/width geometry). `drawPolygon` then emits the final
-   absolute-coordinate polygon via `q.beginShape()`/`q.vertex()`, passing colours as numeric r/g/b/a
-   components since q5's WebGPU renderer doesn't parse CSS colour strings.
+   instead. `writeBasePoints` places each shape in wedge-local space (its own rotation + offset);
+   `segmentMatrix` precomputes the per-segment mirror+rotate as a single 2×2 matrix, applied in one
+   pass via `applyMatrixInto` for shapes entirely inside the wedge cone (`wedgeStatusFlat` classifies
+   this cheaply beforehand — see `segmentDimensions` in `src/lib/utils/index.ts` for the wedge
+   angle/width geometry). Boundary-crossing shapes are rare, so they fall back to an allocating
+   `Point[]` path (`mirrorPointsX` + `clipPolygonToWedge`, since q5 has no scissor/clip primitive of
+   its own). `drawPolygonFlat`/`drawPolygon` then emit the final absolute-coordinate polygon via
+   `q.beginShape()`/`q.vertex()`, passing colours as numeric r/g/b/a components since q5's WebGPU
+   renderer doesn't parse CSS colour strings.
 
 5. Optional webcam input (`webcamOpacity` store, slider in `Parameters.svelte`) is captured via
    `q.createCapture('video')` and composited *underneath* the shapes each frame. Because q5's WebGPU

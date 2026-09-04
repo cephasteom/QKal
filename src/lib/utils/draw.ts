@@ -42,17 +42,55 @@ export function superformula(phi: number, m: number, n1: number, n2: number, n3:
 // -------------------------------
 // SUPERFORMULA SHAPE OUTLINE (object-local, unrotated)
 // -------------------------------
-export function superformulaPoints(size: number, params: SuperformulaParams): Point[] {
+// Every shape samples phi on the same fixed step sequence, so that sequence
+// (and its cos/sin) is computed once at module load rather than per shape
+// per frame.
+const SUPERFORMULA_STEP = 0.05;
+const SUPERFORMULA_PHI: number[] = [];
+const SUPERFORMULA_COS: number[] = [];
+const SUPERFORMULA_SIN: number[] = [];
+for (let phi = 0; phi < Math.PI * 2; phi += SUPERFORMULA_STEP) {
+    SUPERFORMULA_PHI.push(phi);
+    SUPERFORMULA_COS.push(Math.cos(phi));
+    SUPERFORMULA_SIN.push(Math.sin(phi));
+}
+export const SUPERFORMULA_POINT_COUNT = SUPERFORMULA_PHI.length;
+
+// Writes an object's fully-placed base points (its own superformula outline,
+// spun by its own rotation, offset into wedge-local space) directly into a
+// caller-owned Float32Array of length SUPERFORMULA_POINT_COUNT * 2, as
+// [x0, y0, x1, y1, ...]. This is the per-object, per-frame hot path - the
+// caller pools one buffer per object and reuses it frame over frame instead
+// of allocating a fresh Point[] through superformulaPoints/rotatePoints/
+// translatePoints every tick.
+export function writeBasePoints(
+    out: Float32Array,
+    size: number,
+    params: SuperformulaParams,
+    rotation: number,
+    offsetX: number,
+    offsetY: number
+): void {
     const { m, n1, n2, n3 } = params;
-    const points: Point[] = [];
-    const step = 0.05;
-
-    for (let phi = 0; phi < Math.PI * 2; phi += step) {
-        const r = superformula(phi, m, n1, n2, n3) * size;
-        points.push({ x: r * Math.cos(phi), y: r * Math.sin(phi) });
+    const cosR = Math.cos(rotation);
+    const sinR = Math.sin(rotation);
+    for (let i = 0; i < SUPERFORMULA_POINT_COUNT; i++) {
+        const r = superformula(SUPERFORMULA_PHI[i], m, n1, n2, n3) * size;
+        const x = r * SUPERFORMULA_COS[i];
+        const y = r * SUPERFORMULA_SIN[i];
+        out[i * 2] = (x * cosR - y * sinR) + offsetX;
+        out[i * 2 + 1] = (x * sinR + y * cosR) + offsetY;
     }
+}
 
-    return points;
+// Converts a pooled flat buffer back to Point[] for the rare boundary-clip
+// path below, which still needs to grow/shrink the point list.
+export function flatToPoints(points: Float32Array): Point[] {
+    const result: Point[] = new Array(points.length / 2);
+    for (let i = 0; i < points.length; i += 2) {
+        result[i / 2] = { x: points[i], y: points[i + 1] };
+    }
+    return result;
 }
 
 // -------------------------------
@@ -63,16 +101,6 @@ export function superformulaPoints(size: number, params: SuperformulaParams): Po
 // transform unpredictable. All positioning is instead done as plain point
 // math here, with a single self-consistent convention, so q5 only ever
 // receives final absolute coordinates.
-export function rotatePoints(points: Point[], angle: number): Point[] {
-    const cos = Math.cos(angle);
-    const sin = Math.sin(angle);
-    return points.map(({ x, y }) => ({ x: x * cos - y * sin, y: x * sin + y * cos }));
-}
-
-export function translatePoints(points: Point[], dx: number, dy: number): Point[] {
-    return points.map(({ x, y }) => ({ x: x + dx, y: y + dy }));
-}
-
 export function mirrorPointsX(points: Point[]): Point[] {
     return points.map(({ x, y }) => ({ x: -x, y }));
 }
@@ -81,6 +109,18 @@ export function mirrorPointsX(points: Point[]): Point[] {
 // transforms above have been pre-composed (see segmentMatrix below).
 export function applyMatrix(points: Point[], m: Matrix2D): Point[] {
     return points.map(({ x, y }) => ({ x: m.a * x + m.c * y, y: m.b * x + m.d * y }));
+}
+
+// Same as applyMatrix, but writes into a caller-owned Float32Array instead
+// of allocating a new Point[] - the pooled counterpart used on the hot
+// "entirely inside the wedge" path.
+export function applyMatrixInto(out: Float32Array, points: Float32Array, m: Matrix2D): void {
+    for (let i = 0; i < points.length; i += 2) {
+        const x = points[i];
+        const y = points[i + 1];
+        out[i] = m.a * x + m.c * y;
+        out[i + 1] = m.b * x + m.d * y;
+    }
 }
 
 // The per-segment placement is just rotatePoints(angle), optionally preceded
@@ -114,6 +154,24 @@ export function wedgeStatus(points: Point[], halfAngle: number): WedgeStatus {
         if (rightOk && leftOk) insideCount++;
     }
     if (insideCount === points.length) return 'in';
+    if (insideCount === 0) return 'out';
+    return 'boundary';
+}
+
+// Same as wedgeStatus, but reads directly from a pooled flat buffer.
+export function wedgeStatusFlat(points: Float32Array, halfAngle: number): WedgeStatus {
+    const sin = Math.sin(halfAngle);
+    const cos = Math.cos(halfAngle);
+    const total = points.length / 2;
+    let insideCount = 0;
+    for (let i = 0; i < points.length; i += 2) {
+        const x = points[i];
+        const y = points[i + 1];
+        const rightOk = sin * y - cos * x >= 0;
+        const leftOk = sin * y + cos * x >= 0;
+        if (rightOk && leftOk) insideCount++;
+    }
+    if (insideCount === total) return 'in';
     if (insideCount === 0) return 'out';
     return 'boundary';
 }
@@ -206,7 +264,7 @@ export function compositeWebcamWedges(
 
             // drawing the same source crop into every wedge's rotated/mirrored
             // local frame is what produces the mirrored kaleidoscope symmetry -
-            // the same trick rotatePoints/mirrorPointsX apply to shape points.
+            // the same trick segmentMatrix/mirrorPointsX apply to shape points.
             ctx.drawImage(video, -size / 2, -size / 2, size, size);
         } finally {
             ctx.restore();
@@ -227,5 +285,18 @@ export function drawPolygon(q: any, points: Point[], fillColor: Color, strokeCol
 
     q.beginShape();
     for (const p of points) q.vertex(p.x, p.y);
+    q.endShape(true);
+}
+
+// Same as drawPolygon, but reads directly from a pooled flat buffer - the
+// counterpart used on the hot "entirely inside the wedge" path.
+export function drawPolygonFlat(q: any, points: Float32Array, fillColor: Color, strokeColor: Color) {
+    if (points.length < 6) return;
+
+    q.fill(fillColor.r, fillColor.g, fillColor.b, fillColor.a);
+    q.stroke(strokeColor.r, strokeColor.g, strokeColor.b, strokeColor.a);
+
+    q.beginShape();
+    for (let i = 0; i < points.length; i += 2) q.vertex(points[i], points[i + 1]);
     q.endShape(true);
 }
