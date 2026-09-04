@@ -1,16 +1,42 @@
 import { get } from 'svelte/store';
 import { readable, writable, derived } from 'svelte/store';
-import { complex, round, pow, abs } from 'mathjs'
-import { mapToRange, debounce } from '$lib/utils';
+import { complex, round } from 'mathjs'
+import { debounce } from '$lib/utils';
 import { computeQuantumFeatures, type QuantumFeatures } from '$lib/utils/features';
 // @ts-ignore
 import QuantumCircuit from 'quantum-circuit/dist/quantum-circuit.min.js';
-import { loadingState } from './presets';
+import { buildQuantumWalk } from './presets';
 import { WebMidi } from 'webmidi';
 
 export const circuit = new QuantumCircuit();
-circuit.load(loadingState)
-circuit.run()
+buildQuantumWalk(circuit);
+
+// A snapshot of the complex amplitude vector (interleaved re/im) after each
+// column the simulator processes, not just the final result - see
+// QKAL_MATERIALS_PLAN.md phase 5. kaleidoscope.ts continuously interpolates
+// through this sequence as the animation runs, so shapes change because a
+// gate actually acted on them rather than because of independent noise.
+export const moments = writable<Float32Array[]>([]);
+
+function runCircuit() {
+    const length = circuit.numAmplitudes();
+    const snapshots: Float32Array[] = [];
+    circuit.run(null, {
+        onColumn: () => {
+            const snapshot = new Float32Array(length * 2);
+            for (let i = 0; i < length; i++) {
+                const amplitude = circuit.state[i];
+                if (amplitude) {
+                    snapshot[i * 2] = amplitude.re;
+                    snapshot[i * 2 + 1] = amplitude.im;
+                }
+            }
+            snapshots.push(snapshot);
+        }
+    });
+    moments.set(snapshots);
+}
+runCircuit();
 
 const symbols: { [key: string]: string } = {
     theta: 'θ',
@@ -18,7 +44,7 @@ const symbols: { [key: string]: string } = {
     lambda: 'λ',
 }
 export const circuitParams = writable(extractParams())
-const debouncedCircuitRun = debounce(() => circuit.run(), 10)
+const debouncedCircuitRun = debounce(runCircuit, 10)
 
 // Re-run the circuit whenever parameters change, debounced to avoid excessive computations
 circuitParams.subscribe(debouncedCircuitRun)
@@ -46,30 +72,9 @@ async function mapToMidi() {
 }
 mapToMidi();
 
-export const probabilities = derived(
-    [circuitParams],
-    () => {
-        const length = circuit.numAmplitudes()
-        return Array.from({length}, (_, i) => {
-            const state = round(circuit.state[i] || complex(0, 0), 14);
-            // @ts-ignore
-            const result = +pow(abs(state), 2)
-            return parseFloat(result.toFixed(5))
-        })
-    }
-)
-
-export const phases = derived(
-    [circuitParams],
-    () => {
-        const states = circuit.stateAsArray()
-        return states.map((state: any) => Math.abs(mapToRange(state.phase, -Math.PI, Math.PI, 0, 1)))
-    }
-)
-
 // Bloch vectors, mean Bloch length, and participation ratio - see
-// src/lib/utils/features.ts and QKAL_PLAN.md step 3. Unlike probabilities/
-// phases these need the raw complex amplitudes, not just magnitude/angle.
+// src/lib/utils/features.ts and QKAL_PLAN.md step 3. Computed from the
+// circuit's final state (unlike `moments` above, which tracks every column).
 export const features = derived(
     [circuitParams],
     (): QuantumFeatures => {

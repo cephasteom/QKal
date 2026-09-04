@@ -1,87 +1,48 @@
-export const loadingState = {
-    "numQubits": 4,
-    "params": [],
-    "options": {
-        "params": {},
-        "hybrid": false,
-        "hybridOptions": {
-            "optimizer": "Powell",
-            "tolerance": 0.001,
-            "costFunction": {
-                "python": "",
-                "javascript": ""
-            }
-        },
-        "encoderDecoder": false,
-        "encoderDecoderOptions": {
-            "functionName": "",
-            "inputEncoding": {
-                "type": "custom",
-                "customFunction": {
-                    "python": "def custom_encoder(input_data_row, input_encoding):\n    qasm = \"\"\n    qasm += \"OPENQASM 2.0;\\n\"\n    qasm += \"include \\\"qelib1.inc\\\";\\n\"\n\n    # ...\n\n    return qasm\n",
-                    "javascript": "function customEncoder(inputDataRow, inputEncoding) {\n    let qasm = \"\";\n    qasm += \"OPENQASM 2.0;\\n\";\n    qasm += \"include \\\"qelib1.inc\\\";\\n\";\n    \n    // ...\n    \n    return qasm;\n}\n"
-                },
-                "qubitOffset": 0,
-                "colDefs": [],
-                "data": []
-            },
-            "outputDecoding": {
-                "type": "custom",
-                "customFunction": {
-                    "python": "def custom_decoder(counts, output_decoding):\n    output_data_row = {}\n\n    # ...\n    \n    return output_data_row\n",
-                    "javascript": "function customDecoder(counts, outputDecoding) {\n    outputDataRow = {};\n    \n    // ...\n    \n    return outputDataRow;\n}\n"
-                },
-                "qubitOffset": 0,
-                "colDefs": []
-            }
+// Discrete-time quantum walk on a cycle of 2^positionQubits sites - see
+// QKAL_MATERIALS_PLAN.md phase 3. A walker spreads as two ballistic
+// wavefronts with interference fringes trailing behind, rather than the
+// Gaussian blob a classical random walk would produce, so every basis state
+// ends up part of one coherent structure instead of an independent draw.
+//
+// Wire 0 is the coin qubit; wires 1..positionQubits are the position
+// register, wire 1 the least significant bit. Each step is:
+//   1. h on the coin
+//   2. controlled-increment of the position register, controlled on coin = 1
+//   3. controlled-decrement of the position register, controlled on coin = 0
+//
+// The increment is the standard ripple cascade: for bit k (0 = LSB), flip it
+// controlled on the coin and all lower bits being set, applied MSB-first so
+// each control still holds its untouched value when read. Every gate in that
+// cascade is its own inverse, so running the exact same cascade in reverse
+// order performs the decrement - no separate decrement circuit is needed.
+// "Controlled on coin = 0" is achieved by flipping the coin, running the
+// (now coin = 1 controlled) decrement cascade, then flipping the coin back.
+export function buildQuantumWalk(
+    circuit: any,
+    { positionQubits = 3, steps = 4 }: { positionQubits?: number; steps?: number } = {}
+) {
+    const coin = 0;
+    const position = Array.from({ length: positionQubits }, (_, i) => i + 1);
+
+    // One multi-controlled-X gate per cascade rung (coin + 0..k-1 lower
+    // position bits as controls), registered once and reused every step.
+    const mcxNames = Array.from({ length: positionQubits }, (_, k) => circuit.registerMCXGate(k + 1));
+
+    const cascadeWires = (k: number) => [coin, ...position.slice(0, k), position[k]];
+
+    for (let step = 0; step < steps; step++) {
+        circuit.appendGate('h', coin);
+
+        for (let k = positionQubits - 1; k >= 0; k--) {
+            circuit.appendGate(mcxNames[k], cascadeWires(k));
         }
-    },
-    "gates": [
-        [
-            {
-                "id": "xTo0sc8VzShNfI2qyT",
-                "name": "rx",
-                "connector": 0,
-                "options": {
-                    "params": {
-                        "theta": 1.61
-                    }
-                }
-            }
-        ],
-        [
-            {
-                "id": "fbXHiC39kLDlbr7ang",
-                "name": "ry",
-                "connector": 0,
-                "options": {
-                    "params": {
-                        "theta": 2.44
-                    }
-                }
-            }
-        ],
-        [
-            {
-                "id": "XEKLkbgiDixEIVJLdP",
-                "name": "rz",
-                "connector": 0,
-                "options": {
-                    "params": {
-                        "phi": 1.39
-                    }
-                }
-            }
-        ],
-        [
-            {
-                "id": "vUl3ujb6g3hq1mQr8p",
-                "name": "h",
-                "connector": 0,
-                "options": {}
-            }
-        ]
-    ],
-    "customGates": {},
-    "cregs": {}
+
+        circuit.appendGate('x', coin);
+        for (let k = 0; k < positionQubits; k++) {
+            circuit.appendGate(mcxNames[k], cascadeWires(k));
+        }
+        circuit.appendGate('x', coin);
+    }
+
+    return circuit;
 }

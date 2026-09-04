@@ -286,7 +286,7 @@
         // :global(.qc-circuit ellipse), 
         :global(.qc-circuit rect), 
         :global(.qc-circuit path) {
-            fill: black!important;
+            fill: transparent!important;
             stroke: white!important;
             cursor: grab;
         }

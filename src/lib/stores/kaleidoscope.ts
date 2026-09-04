@@ -1,6 +1,7 @@
-import { numberToColor, noiseWalk, clamp } from '$lib/utils';
+import { numberToColor, noiseWalk, clamp, segmentDimensions, mapToRange } from '$lib/utils';
+import { hypercubeLayout } from '$lib/utils/layout';
 import { writable, derived, get } from 'svelte/store';
-import { probabilities, phases, features } from './circuit';
+import { moments, features } from './circuit';
 import { WebMidi } from 'webmidi';
 import { level } from './midi';
 
@@ -60,10 +61,16 @@ mapToMidi();
 // an actual qubit-count change so it doesn't fight manual/MIDI adjustments
 // made in between.
 let lastQubitCount: number | null = null;
+// Unit-radius basis-state lattice (QKAL_MATERIALS_PLAN.md phase 1),
+// recomputed only on an actual qubit-count change alongside segments above -
+// scaled by the live `size`/`segments` stores per frame in `objects` below,
+// so a size change doesn't require re-deriving the (trig-heavy) layout.
+let unitLayout = new Float32Array(0);
 features.subscribe(($features) => {
     if ($features.qubitCount === lastQubitCount) return;
     lastQubitCount = $features.qubitCount;
     segments.set(Math.max(4, $features.qubitCount * 2));
+    unitLayout = hypercubeLayout($features.qubitCount, 1);
 });
 
 export const controlsAreActive = derived(
@@ -107,17 +114,50 @@ interface QuantumTrait {
     shape: string;
 }
 
-// Colour, the superformula's `m` parameter, and shape id are pure functions
-// of a basis state's probability/phase, so they only need to recompute when
-// the circuit re-runs, not on every animation tick like `objects` below.
-// This also converts phase -> RGB once per circuit run instead of twice per
-// object (fill + stroke) on every frame, since numberToColor's r/g/b only
-// depend on phase - the two calls only ever differed in alpha.
+// Continuous position in the circuit's moment sequence (QKAL_MATERIALS_PLAN.md
+// phase 5) - advances a little further into `$moments` every time
+// quantumTraits recomputes (i.e. every animation frame), the same persistent-
+// accumulator pattern as the noise walkers below. Wraps rather than stopping
+// at the end, so the walk's evolution plays on a loop.
+let momentPosition = 0;
+// Moments advanced per unit of `speed` per frame - tuned so the ~150-moment
+// walk above takes a few seconds to cycle through at the default speed.
+const MOMENT_RATE = 4;
+
+function interpolateMoment($moments: Float32Array[], $speed: number): Float32Array {
+    const count = $moments.length;
+    if (count === 0) return new Float32Array(0);
+    momentPosition = (momentPosition + $speed * MOMENT_RATE) % count;
+    const i0 = Math.floor(momentPosition);
+    const i1 = (i0 + 1) % count;
+    const frac = momentPosition - i0;
+    const a = $moments[i0];
+    const b = $moments[i1];
+    const out = new Float32Array(a.length);
+    for (let k = 0; k < a.length; k++) out[k] = a[k] + (b[k] - a[k]) * frac;
+    return out;
+}
+
+// Colour, the superformula's `m` parameter, and shape id are derived from the
+// continuously-interpolated complex amplitude above rather than the circuit's
+// final state, so they change because a gate acted on them as the walk plays
+// out - not from independent noise. Recomputes every animation tick (`t`),
+// unlike the noise-driven attributes in `objects` below which vary
+// independently per object.
+//
+// The interpolated amplitude is lerped as a complex number (re, im) and only
+// converted to magnitude/phase afterwards - lerping phase directly would spin
+// the long way round whenever it wraps past +-PI.
 export const quantumTraits = derived(
-    [probabilities, phases, elementShapes],
-    ([$probabilities, $phases, $elementShapes]): QuantumTrait[] => {
-        return $probabilities.map((probability, i) => {
-            const phase = $phases[i];
+    [moments, speed, elementShapes, t],
+    ([$moments, $speed, $elementShapes]): QuantumTrait[] => {
+        const state = interpolateMoment($moments, $speed);
+        const count = state.length / 2;
+        return Array.from({ length: count }, (_, i) => {
+            const re = state[i * 2];
+            const im = state[i * 2 + 1];
+            const probability = re * re + im * im;
+            const phase = Math.abs(mapToRange(Math.atan2(im, re), -Math.PI, Math.PI, 0, 1));
             const { r, g, b } = numberToColor(phase);
             return {
                 probability,
@@ -145,16 +185,26 @@ export const elementSizeAmount = derived(
     ([$features, $elementMaxSize]) => clamp($elementMaxSize + $features.participationRatio * 400, 1, 900)
 );
 
+// `quantumTraits` already recomputes every frame (it depends on `t` itself,
+// see above), so it alone is enough to drive this every frame too - no need
+// to also list `t` here.
 export const objects = derived(
-    [quantumTraits, elementSizeAmount, size, speed, strokeOpacity, fillOpacity, midiInput, t],
-    ([$quantumTraits, $elementSizeAmount, $size, $speed, $strokeOpacity, $fillOpacity, $midiInput]) => {
+    [quantumTraits, elementSizeAmount, size, speed, strokeOpacity, fillOpacity, midiInput, segments],
+    ([$quantumTraits, $elementSizeAmount, $size, $speed, $strokeOpacity, $fillOpacity, $midiInput, $segments]) => {
+        // Basis states are laid out on the hypercube lattice rather than
+        // scattered by noise - real adjacency, not a decorative arrangement.
+        // See QKAL_MATERIALS_PLAN.md phase 1. The walkers below only add a
+        // small organic wobble on top of that fixed position now (phase 5),
+        // rather than determining it outright.
+        const { width: wedgeWidth } = segmentDimensions($segments, $size);
+        const cx = wedgeWidth / 2;
+        const cy = $size * 0.28;
+        const layoutRadius = $size * 0.12;
+        const jitter = layoutRadius * 0.15;
+
         return $quantumTraits.map(({ probability, phase, r, g, b, sfM, shape }: QuantumTrait, i) => ({
-            x: 0.25
-                * $size
-                + getWalker((i * 10) + 0)($speed),
-            y: (probability
-                * $size
-                + getWalker((i * 10) + 1)($speed) / 2 + 0.5),
+            x: cx + unitLayout[i * 2] * layoutRadius + (getWalker((i * 10) + 0)($speed) - 0.5) * jitter,
+            y: cy + unitLayout[i * 2 + 1] * layoutRadius + (getWalker((i * 10) + 1)($speed) - 0.5) * jitter,
             fill: { r, g, b, a: $fillOpacity + (getWalker((i * 10) + 2)($speed) * (phase * 0.001)) },
             stroke: { r, g, b, a: ($strokeOpacity + getWalker((i * 10) + 3)($speed) * probability) },
             size: (getWalker((i * 10) + 4)($speed)/2 + .5) * $elementSizeAmount * (1 + ($midiInput * get(level) * 2)),
