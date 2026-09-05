@@ -3,12 +3,12 @@
         elementMaxSize, 
         fillOpacity,
         strokeOpacity,
-        speed, 
+        speed,
+        momentRate,
         showControls,
         blur,
         midiInput,
         size,
-        segments,
         webcamOpacity
     } from "$lib/stores/kaleidoscope";
     import { circuitParams } from "$lib/stores/circuit";
@@ -20,18 +20,13 @@
         <h2>Parameters</h2>
         
         <div class="parameter">
-            <label for="segments">Segments</label>
-            <input class="track" type="range" id="segments" bind:value={$segments} min="4" max="12" step="2" />
-            <output for="segments">{$segments}</output>
-        </div>
-        <div class="parameter">
             <label for="size">Size</label>
             <input class="track" type="range" id="size" bind:value={$size} min="700" max="2000" step="1" />
             <output for="size">{$size}</output>
         </div>
         <div class="parameter">
             <label for="elementMaxSize">Zoom</label>
-            <input class="track" type="range" id="elementMaxSize" bind:value={$elementMaxSize} min="1" max="500" step="1" />
+            <input class="track" type="range" id="elementMaxSize" bind:value={$elementMaxSize} min="0" max="1" step="0.001" />
             <output for="elementMaxSize">{$elementMaxSize}</output>
         </div>
         <div class="parameter">
@@ -53,6 +48,11 @@
             <label for="speed">Noise</label>
             <input class="track" type="range" id="speed" bind:value={$speed} min="0.01" max="1" step="0.01"/>
             <output for="speed">{$speed.toFixed(2)}</output>
+        </div>
+        <div class="parameter">
+            <label for="momentRate">Evolution</label>
+            <input class="track" type="range" id="momentRate" bind:value={$momentRate} min="0" max="1" step="0.001"/>
+            <output for="momentRate">{$momentRate.toFixed(2)}</output>
         </div>
         <div class="parameter">
             <label for="midiInput">Midi Input</label>

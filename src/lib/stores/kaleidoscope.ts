@@ -15,17 +15,23 @@ function getWalker(i: number) {
 }
 
 export const t = writable<number>(0);
-// Manual/MIDI-set baseline; synced to the circuit's qubit count below
-// whenever it changes (QKAL_PLAN.md step 3), then left alone in between.
+// Fully derived from the circuit's basis-state count below (QKAL_PLAN.md
+// step 3) - no manual/MIDI control, so there's no baseline to speak of here.
 export const segments = writable<number>(6);
 // Manual/MIDI offset added on top of the participation-ratio-driven base -
 // see elementSizeAmount below.
-export const elementMaxSize = writable<number>(300);
+export const elementMaxSize = writable<number>(0.3);
 export const elementShapes = writable<string[]>(['arc', 'poly', 'bezier']);
 export const strokeOpacity = writable<number>(0.01);
-export const fillOpacity = writable<number>(0.01);
+export const fillOpacity = writable<number>(0.005);
 export const speed = writable<number>(0.1);
-export const size = writable<number>(2000);
+// Slider-facing 0-1 value for how fast quantumTraits steps through the
+// circuit's moment sequence - see MOMENT_RATE_SCALE/interpolateMoment below,
+// which map it onto the actual 0-4 moments-per-frame rate. Kept separate
+// from `speed` above so time evolution and noise-walker wobble can be tuned
+// independently even though they used to share one slider.
+export const momentRate = writable<number>(0.03);
+export const size = writable<number>(800);
 // Manual/MIDI offset added on top of the entanglement-driven base - see
 // blurAmount below.
 export const blur = writable<number>(0);
@@ -43,7 +49,7 @@ async function mapToMidi() {
         input.addListener('controlchange', 'all', (e) => {
             switch(e.controller.number) {
                 // case 0: size.set(Math.floor(e.value * 1300) + 700); break;
-                case 1: elementMaxSize.set(Math.floor(e.value * 499 + 1)); break;
+                case 1: elementMaxSize.set(Math.floor(e.value * 0.9 + 0.1)); break;
                 case 2: fillOpacity.set(e.value); break;
                 case 3: strokeOpacity.set(e.value); break;
                 case 4: blur.set(e.value); break;
@@ -55,11 +61,13 @@ async function mapToMidi() {
 }
 mapToMidi();
 
-// Segments track the qubit count directly - it's rare enough to change
-// (only when a gate is added/removed on a new wire) that snapping it
-// outright doesn't jar, unlike the continuous blur/size below. Only acts on
-// an actual qubit-count change so it doesn't fight manual/MIDI adjustments
-// made in between.
+// Segments track the number of basis states directly (2^qubitCount) - one
+// wedge per state keeps the mirrored layout matched to what's actually being
+// drawn, rather than an arbitrary multiple of the qubit count. It's rare
+// enough to change (only when a gate is added/removed on a new wire) that
+// snapping it outright doesn't jar, unlike the continuous blur/size below.
+// Only acts on an actual qubit-count change so it doesn't fight the
+// hypercube layout recompute below.
 let lastQubitCount: number | null = null;
 // Unit-radius basis-state lattice (QKAL_MATERIALS_PLAN.md phase 1),
 // recomputed only on an actual qubit-count change alongside segments above -
@@ -69,7 +77,7 @@ let unitLayout = new Float32Array(0);
 features.subscribe(($features) => {
     if ($features.qubitCount === lastQubitCount) return;
     lastQubitCount = $features.qubitCount;
-    segments.set(Math.max(4, $features.qubitCount * 2));
+    segments.set(Math.max(4, 2 ** $features.qubitCount));
     unitLayout = hypercubeLayout($features.qubitCount, 1);
 });
 
@@ -120,14 +128,14 @@ interface QuantumTrait {
 // accumulator pattern as the noise walkers below. Wraps rather than stopping
 // at the end, so the walk's evolution plays on a loop.
 let momentPosition = 0;
-// Moments advanced per unit of `speed` per frame - tuned so the ~150-moment
-// walk above takes a few seconds to cycle through at the default speed.
-const MOMENT_RATE = 4;
+// `momentRate` above is a 0-1 slider value; scale it up to the actual
+// moments-advanced-per-frame rate.
+const MOMENT_RATE_SCALE = 1;
 
-function interpolateMoment($moments: Float32Array[], $speed: number): Float32Array {
+function interpolateMoment($moments: Float32Array[], $momentRate: number): Float32Array {
     const count = $moments.length;
     if (count === 0) return new Float32Array(0);
-    momentPosition = (momentPosition + $speed * MOMENT_RATE) % count;
+    momentPosition = (momentPosition + $momentRate * MOMENT_RATE_SCALE) % count;
     const i0 = Math.floor(momentPosition);
     const i1 = (i0 + 1) % count;
     const frac = momentPosition - i0;
@@ -149,9 +157,9 @@ function interpolateMoment($moments: Float32Array[], $speed: number): Float32Arr
 // converted to magnitude/phase afterwards - lerping phase directly would spin
 // the long way round whenever it wraps past +-PI.
 export const quantumTraits = derived(
-    [moments, speed, elementShapes, t],
-    ([$moments, $speed, $elementShapes]): QuantumTrait[] => {
-        const state = interpolateMoment($moments, $speed);
+    [moments, momentRate, elementShapes, t],
+    ([$moments, $momentRate, $elementShapes]): QuantumTrait[] => {
+        const state = interpolateMoment($moments, $momentRate);
         const count = state.length / 2;
         return Array.from({ length: count }, (_, i) => {
             const re = state[i * 2];
@@ -182,7 +190,7 @@ export const blurAmount = derived(
 // states (-> 0) shrink. `elementMaxSize` is a manual/MIDI offset on top.
 export const elementSizeAmount = derived(
     [features, elementMaxSize],
-    ([$features, $elementMaxSize]) => clamp($elementMaxSize + $features.participationRatio * 400, 1, 900)
+    ([$features, $elementMaxSize]) => clamp(($elementMaxSize * 500) + $features.participationRatio * 400, 1, 900)
 );
 
 // `quantumTraits` already recomputes every frame (it depends on `t` itself,

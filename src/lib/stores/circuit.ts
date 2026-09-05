@@ -5,11 +5,10 @@ import { debounce } from '$lib/utils';
 import { computeQuantumFeatures, type QuantumFeatures } from '$lib/utils/features';
 // @ts-ignore
 import QuantumCircuit from 'quantum-circuit/dist/quantum-circuit.min.js';
-import { buildQuantumWalk } from './presets';
+import { presets, type Preset } from './presets';
 import { WebMidi } from 'webmidi';
 
 export const circuit = new QuantumCircuit();
-buildQuantumWalk(circuit);
 
 // A snapshot of the complex amplitude vector (interleaved re/im) after each
 // column the simulator processes, not just the final result - see
@@ -36,7 +35,6 @@ function runCircuit() {
     });
     moments.set(snapshots);
 }
-runCircuit();
 
 const symbols: { [key: string]: string } = {
     theta: 'θ',
@@ -135,6 +133,28 @@ export function updateParams()
         })
     })
 }
+
+// Which of presets.ts's algorithms is currently loaded - see the dropdown in
+// Circuit.svelte.
+export const activePreset = writable<string>(presets[0].id);
+
+/**
+ * Replace the circuit with one of the presets from presets.ts (QKAL_MATERIALS_PLAN.md
+ * phase 3). Every gate is freshly built, so unlike updateParams() above there are no
+ * existing param ids to preserve values against - circuitParams is set straight from
+ * extractParams() rather than merged, or values a preset bakes in (e.g. the Ising
+ * model's field/coupling angles) would be reset to 0 before the circuit ever ran.
+ */
+export function loadPreset(id: string) {
+    const preset = presets.find((p: Preset) => p.id === id) || presets[0];
+    circuit.clear();
+    circuit.numQubits = 1;
+    preset.build(circuit);
+    activePreset.set(preset.id);
+    circuitParams.set(extractParams());
+    runCircuit();
+}
+loadPreset(presets[0].id);
 
 export interface Gate {
     name: string;

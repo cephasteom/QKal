@@ -1,6 +1,7 @@
 <script lang="ts">
     import GateButton from './Gate.svelte';
-    import { circuit, gates, updateParams, circuitParams, type Gate } from '$lib/stores/circuit';
+    import { circuit, gates, updateParams, circuitParams, activePreset, loadPreset, type Gate } from '$lib/stores/circuit';
+    import { presets } from '$lib/stores/presets';
     import { onMount } from 'svelte';
     import { areTouching, arraysAreEqual, clamp } from '$lib/utils';
     import SidePanel from '$lib/components/SidePanel/SidePanel.svelte';
@@ -152,8 +153,23 @@
         bind:this={thisContainer}
     >
         <aside class="circuit-designer__palette">
-            <h2 class="title">Circuit</h2>
-            <div 
+            <div class="circuit-designer__header">
+                <h2 class="title">Circuit</h2>
+                <select
+                    class="circuit-designer__preset"
+                    value={$activePreset}
+                    on:change={(e) => {
+                        loadPreset((e.target as HTMLSelectElement).value);
+                        selectedGateId = '';
+                        updateSVG();
+                    }}
+                >
+                    {#each presets as preset}
+                        <option value={preset.id}>{preset.name}</option>
+                    {/each}
+                </select>
+            </div>
+            <div
                 class="circuit-designer__gates"
             >
                 {#each $gates as gate, i}
@@ -214,8 +230,37 @@
 
     .title {
         color: white;
+        margin: 0;
     }
+
     .circuit-designer {
+        &__header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        &__preset {
+            background: transparent;
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            border-radius: 1px;
+            padding: 0.25rem 0.5rem;
+            font-size: 0.65rem;
+            max-width: 8rem;
+
+            &:focus {
+                outline: none;
+                background-color: white;
+                color: black;
+            }
+
+            option {
+                color: black;
+            }
+        }
+
         display: flex;
         gap: 1rem;
         min-height: 76vh;
