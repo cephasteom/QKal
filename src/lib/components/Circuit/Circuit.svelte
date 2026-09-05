@@ -236,8 +236,9 @@
     .circuit-designer {
         &__header {
             display: flex;
-            align-items: center;
-            gap: 0.5rem;
+            flex-direction: column;
+            // align-items: center;
+            gap: .8rem;
             flex-wrap: wrap;
         }
 
@@ -267,16 +268,23 @@
         height: 100%;
         width: calc(100vw - 50px);
         overflow-y: scroll;
+        // Without this, overflow-x's default `visible` gets forced to `auto`
+        // by the spec (since overflow-y above isn't `visible`), scrolling the
+        // whole row - palette included - instead of just the circuit pane.
+        overflow-x: hidden;
 
         &__palette {
             display: flex;
             flex-direction: column;
             gap: 1rem;
+            flex-shrink: 0; // stay put at a fixed width while the circuit pane scrolls
         }
 
         &__circuit {
             margin-top: 3.3rem;
             width: 100%;
+            min-width: 0; // let this flex item shrink below the svg's width so it scrolls internally instead of stretching the row
+            overflow-x: auto;
         }
 
         &__gates {
