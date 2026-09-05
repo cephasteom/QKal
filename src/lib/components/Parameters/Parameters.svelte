@@ -17,8 +17,8 @@
 
 {#if $showControls}
     <SidePanel>
-        <h2>Parameters</h2>
-        
+        <h2 slot="header">Parameters</h2>
+
         <div class="parameter">
             <label for="size">Size</label>
             <input class="track" type="range" id="size" bind:value={$size} min="700" max="2000" step="1" />

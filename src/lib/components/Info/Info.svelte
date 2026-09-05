@@ -7,8 +7,8 @@
 
 {#if $showInfo}
     <SidePanel>
+        <h2 slot="header">Kaleidoscope</h2>
         <article>
-            <h2>Kaleidoscope</h2>
             <p>A generative kaleidoscope that transforms the state vector of a simulated quantum circuit into shapes and colours on a mirrored canvas.</p>
             <p>Each basis state is a shape placed on a lattice shaped like the circuit's qubits - states one flip apart sit next to each other, so the layout reflects structure. A state's phase sets its colour and its probability sets its size and opacity. The pattern evolves continuously as the circuit's gates act on the state, one step at a time.</p>
             <p>
