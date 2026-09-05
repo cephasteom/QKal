@@ -4,6 +4,7 @@ import { writable, derived, get } from 'svelte/store';
 import { moments, features } from './circuit';
 import { WebMidi } from 'webmidi';
 import { level } from './midi';
+import { persisted } from './persisted';
 
 // TODO: generate as they're needed rather than all at once
 const walkers = <Array<(speed: number) => number>>[];
@@ -18,26 +19,30 @@ export const t = writable<number>(0);
 // Fully derived from the circuit's basis-state count below (QKAL_PLAN.md
 // step 3) - no manual/MIDI control, so there's no baseline to speak of here.
 export const segments = writable<number>(6);
+// Plain render controls below persist to localStorage (unlike circuitParams'
+// gate angles, which are tied to gate ids a fresh preset load regenerates
+// every time, so persisting those wouldn't carry over anything meaningful).
+//
 // Manual/MIDI offset added on top of the participation-ratio-driven base -
 // see elementSizeAmount below.
-export const elementMaxSize = writable<number>(0.3);
+export const elementMaxSize = persisted<number>('qkal:elementMaxSize', 0.3);
 export const elementShapes = writable<string[]>(['arc', 'poly', 'bezier']);
-export const strokeOpacity = writable<number>(0.01);
-export const fillOpacity = writable<number>(0.005);
-export const speed = writable<number>(0.1);
+export const strokeOpacity = persisted<number>('qkal:strokeOpacity', 0.01);
+export const fillOpacity = persisted<number>('qkal:fillOpacity', 0.005);
+export const speed = persisted<number>('qkal:speed', 0.1);
 // Slider-facing 0-1 value for how fast quantumTraits steps through the
 // circuit's moment sequence - see MOMENT_RATE_SCALE/interpolateMoment below,
 // which map it onto the actual 0-4 moments-per-frame rate. Kept separate
 // from `speed` above so time evolution and noise-walker wobble can be tuned
 // independently even though they used to share one slider.
-export const momentRate = writable<number>(0.03);
-export const size = writable<number>(800);
+export const momentRate = persisted<number>('qkal:momentRate', 0.03);
+export const size = persisted<number>('qkal:size', 800);
 // Manual/MIDI offset added on top of the entanglement-driven base - see
 // blurAmount below.
-export const blur = writable<number>(0);
-export const midiInput = writable<number>(0);
+export const blur = persisted<number>('qkal:blur', 0);
+export const midiInput = persisted<number>('qkal:midiInput', 0);
 export const isPlaying = writable<boolean>(true);
-export const webcamOpacity = writable<number>(0);
+export const webcamOpacity = persisted<number>('qkal:webcamOpacity', 0);
 export const showControls = writable<boolean>(false);
 export const showInfo = writable<boolean>(false);
 export const showCircuit = writable<boolean>(false);

@@ -9,10 +9,10 @@
     <SidePanel>
         <article>
             <h2>Kaleidoscope</h2>
-            <p>A generative kaleidoscope that transforms the state vector of a simulated quantum circuit into dynamic shapes and colours on a canvas.</p>
-            <p>Each basis state is represented by an element on the canvas, with its probability amplitude determining its position and its phase influencing its colour. As the number of qubits increases, the visual complexity of the canvas grows.</p>
+            <p>A generative kaleidoscope that transforms the state vector of a simulated quantum circuit into shapes and colours on a mirrored canvas.</p>
+            <p>Each basis state is a shape placed on a lattice shaped like the circuit's qubits - states one flip apart sit next to each other, so the layout reflects structure. A state's phase sets its colour and its probability sets its size and opacity. The pattern evolves continuously as the circuit's gates act on the state, one step at a time.</p>
             <p>
-                Open the circuit menu to start building your quantum circuit, and use the parameters menu to adjust gate angles and global settings.
+                Open the circuit menu to pick a preset or drag gates onto the wires to build your own. The parameters menu adjusts each gate's angle alongside global rendering and evolution-speed controls, and responds to a connected MIDI device.
             </p>
             <p>
                 Built by CephasTeom using <a href="https://svelte.dev/" target="_blank">Svelte</a> and <a href="https://www.npmjs.com/package/quantum-circuit" target="_blank">quantum-circuit</a>.
